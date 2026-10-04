@@ -286,24 +286,32 @@ func (s *CredentialsService) Delete(ctx context.Context, name string) error {
 	if s.IsManaged(name) {
 		return fmt.Errorf("provider %q is managed by config/env and is read-only", name)
 	}
-	s.applyMu.Lock()
-	previous, err := s.store.Get(ctx, name)
-	if err != nil && !errors.Is(err, ErrCredentialNotFound) {
-		s.applyMu.Unlock()
+	if err := s.deleteStored(ctx, name); err != nil {
 		return err
 	}
-	if err := s.store.Delete(ctx, name); err != nil {
-		s.applyMu.Unlock()
-		return err
-	}
-	s.remove(name)
-	s.releaseSecrets(ctx, name, credentialSecretValues(previous), nil)
-	s.applyMu.Unlock()
 	// See the matching comment in Upsert: a Refresh failure here reflects a
 	// remaining provider's own health, not whether the delete succeeded.
 	if err := s.registry.Refresh(ctx); err != nil {
 		slog.Warn("provider credential deleted but the model catalog refresh failed", "provider", name, "error", err)
 	}
+	return nil
+}
+
+// deleteStored deletes the stored row name, unregisters it, and releases the
+// secrets it held.
+func (s *CredentialsService) deleteStored(ctx context.Context, name string) error {
+	s.applyMu.Lock()
+	defer s.applyMu.Unlock()
+
+	previous, err := s.store.Get(ctx, name)
+	if err != nil && !errors.Is(err, ErrCredentialNotFound) {
+		return err
+	}
+	if err := s.store.Delete(ctx, name); err != nil {
+		return err
+	}
+	s.remove(name)
+	s.releaseSecrets(ctx, name, credentialSecretValues(previous), nil)
 	return nil
 }
 

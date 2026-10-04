@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -298,4 +299,35 @@ func TestCredentialsService_RejectsWriterReferencesTheRowDoesNotHold(t *testing.
 	require.ErrorIs(t, err, config.ErrSecretNotHeld)
 	assert.NotContains(t, store.rows, "w")
 	assert.Empty(t, writer.deleted)
+}
+
+// panickingWriter panics when it deletes a secret.
+type panickingWriter struct{ secretWriterFake }
+
+func (w *panickingWriter) DeleteSecret(context.Context, string) error {
+	panic("secret store client bug")
+}
+
+// A writer that panics during cleanup does not leave saves and deletes
+// locked; net/http recovers the handler's panic and the process carries on.
+func TestCredentialsService_DeleteUnlocksWhenTheWriterPanics(t *testing.T) {
+	vault := &secretVault{values: map[string]string{}}
+	store := newFakeCredentialStore()
+	svc, secrets, _ := newSecretsTestService(t, store, vault)
+	secrets.SetWriter(&panickingWriter{secretWriterFake{vault: vault}})
+	ctx := t.Context()
+	require.NoError(t, svc.Upsert(ctx, ManagedProviderCredential{Name: "w", Type: "test", APIKeys: []string{"sk-typed"}, Enabled: true}))
+
+	require.Panics(t, func() { _ = svc.Delete(ctx, "w") })
+
+	saved := make(chan error, 1)
+	go func() {
+		saved <- svc.Upsert(ctx, ManagedProviderCredential{Name: "other", Type: "test", APIKeys: []string{"${vault:written/w/api_keys[0]}"}, Enabled: true})
+	}()
+	select {
+	case err := <-saved:
+		require.ErrorIs(t, err, config.ErrSecretNotHeld)
+	case <-time.After(5 * time.Second):
+		require.FailNow(t, "a save after the panic is still blocked")
+	}
 }
