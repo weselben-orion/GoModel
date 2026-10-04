@@ -234,6 +234,39 @@ func TestServiceStoresSecretsOfUnnormalizedTypes(t *testing.T) {
 	assert.JSONEq(t, `{"api_key":"typed-key"}`, string(unknown.Config), "nothing is stored for an unknown type")
 }
 
+// Saves and deletes clean up after the stored definition, not the cached
+// snapshot, which another writer of the store can leave behind.
+func TestServiceReleasesSecretsOfTheStoredDefinition(t *testing.T) {
+	vault := &guardrailVault{values: map[string]string{"written/pii/newer": "newer-key"}}
+	store := newTestStore()
+	service, secrets := newSecretsService(t, store, vault)
+	writer := &guardrailWriter{vault: vault}
+	secrets.SetWriter(writer)
+	ctx := t.Context()
+	newer := "${vault:written/pii/newer}"
+
+	require.NoError(t, service.Upsert(ctx, secretDefinition("pii", "typed-key")))
+	storeNewer := func() {
+		definition := store.definitions["pii"]
+		definition.Config = json.RawMessage(`{"api_key":"` + newer + `","threshold":0.5}`)
+		store.definitions["pii"] = definition
+	}
+
+	// The mask keeps the stored reference, which the stored row holds.
+	storeNewer()
+	require.NoError(t, service.Upsert(ctx, secretDefinition("pii", plugins.SecretMask)))
+	assert.JSONEq(t, `{"api_key":"`+newer+`","threshold":0.5}`, string(store.definitions["pii"].Config))
+	assert.Empty(t, writer.deleted)
+
+	require.NoError(t, service.Upsert(ctx, secretDefinition("pii", "typed-key")))
+	assert.Equal(t, []string{newer}, writer.deleted, "the replaced stored reference is released")
+
+	storeNewer()
+	writer.deleted = nil
+	require.NoError(t, service.Delete(ctx, "pii"))
+	assert.Equal(t, []string{newer}, writer.deleted)
+}
+
 // Configuration seeding persists the definition as given: a secret reference
 // reaches the database unresolved, and only the built instance sees the value.
 func TestServiceSeedStoresReferencesNotValues(t *testing.T) {

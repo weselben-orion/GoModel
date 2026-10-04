@@ -106,15 +106,22 @@ func (s *Service) configSchema(defType string) ([]pluginapi.Field, bool) {
 	return entry.Manifest.ConfigSchema, true
 }
 
-// storedSecretValues lists the secret values of the cached definition name.
-func (s *Service) storedSecretValues(name string) []string {
-	s.mu.RLock()
-	def, ok := s.snapshot.definitions[name]
-	s.mu.RUnlock()
-	if !ok {
+// storedDefinition returns the stored definition name, or nil when there is
+// none.
+func (s *Service) storedDefinition(ctx context.Context, name string) (*Definition, error) {
+	stored, err := s.store.Get(ctx, name)
+	if errors.Is(err, ErrNotFound) {
+		return nil, nil
+	}
+	return stored, err
+}
+
+// storedSecretValues lists the secret values of stored, which may be nil.
+func (s *Service) storedSecretValues(stored *Definition) []string {
+	if stored == nil {
 		return nil
 	}
-	return s.definitionSecretValues(def)
+	return s.definitionSecretValues(*stored)
 }
 
 // releaseSecrets deletes the writer-owned references of previous that current

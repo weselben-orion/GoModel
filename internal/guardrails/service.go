@@ -317,16 +317,22 @@ func (s *Service) Upsert(ctx context.Context, definition Definition) error {
 	s.mutateMu.Lock()
 	defer s.mutateMu.Unlock()
 
-	if stored, ok := s.Get(identity.Name); ok && stored.Type == identity.Type {
-		if entry, ok := s.catalog.Lookup(identity.Type); ok {
-			identity.Config = plugins.MergeSecrets(entry.Manifest.ConfigSchema, identity.Config, s.storedConfig(identity.Name))
+	// The stored row, not the cached snapshot, which a failed refresh or
+	// another writer of the store can leave behind it.
+	stored, err := s.storedDefinition(ctx, identity.Name)
+	if err != nil {
+		return guardrailServiceError("upsert guardrail", err)
+	}
+	if stored != nil && normalizeDefinitionType(stored.Type) == identity.Type {
+		if schema, ok := s.configSchema(identity.Type); ok {
+			identity.Config = plugins.MergeSecrets(schema, identity.Config, stored.Config)
 		}
 	}
 	normalized, err := s.normalizeDefinition(identity)
 	if err != nil {
 		return err
 	}
-	previous := s.storedSecretValues(normalized.Name)
+	previous := s.storedSecretValues(stored)
 	written, err := s.storeDefinitionSecrets(ctx, &normalized, previous)
 	if err != nil {
 		return guardrailServiceError("upsert guardrail", err)
@@ -353,8 +359,12 @@ func (s *Service) Delete(ctx context.Context, name string) error {
 	s.mutateMu.Lock()
 	defer s.mutateMu.Unlock()
 
-	previous := s.storedSecretValues(name)
-	err := s.commit(ctx, func(next map[string]Definition) error {
+	stored, err := s.storedDefinition(ctx, name)
+	if err != nil {
+		return guardrailServiceError("delete guardrail", err)
+	}
+	previous := s.storedSecretValues(stored)
+	err = s.commit(ctx, func(next map[string]Definition) error {
 		delete(next, name)
 		return nil
 	}, func() error { return s.store.Delete(ctx, name) }, "delete guardrail")
@@ -465,12 +475,6 @@ func (s *Service) redacted(def Definition) Definition {
 		cloned.Config = plugins.RedactSecrets(entry.Manifest.ConfigSchema, cloned.Config)
 	}
 	return cloned
-}
-
-func (s *Service) storedConfig(name string) json.RawMessage {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.snapshot.definitions[name].Config
 }
 
 // InstanceConfig returns the unredacted config, secret references resolved,
