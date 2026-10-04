@@ -201,6 +201,39 @@ func TestServiceUpsertRejectsWriterReferencesTheDefinitionDoesNotHold(t *testing
 	assert.Empty(t, writer.deleted)
 }
 
+// The secret fields are found whatever spelling of the type reaches the
+// writer, and a type the catalog does not know fails rather than letting a
+// literal secret bypass it.
+func TestServiceStoresSecretsOfUnnormalizedTypes(t *testing.T) {
+	vault := &guardrailVault{values: map[string]string{}}
+	store := newTestStore()
+	service, secrets := newSecretsService(t, store, vault)
+	secrets.SetWriter(&guardrailWriter{vault: vault})
+	ctx := t.Context()
+	written := `{"api_key":"${vault:written/pii/config.api_key}","threshold":0.5}`
+
+	definition := secretDefinition("pii", "typed-key")
+	definition.Type = " Plugin:Secret_Check "
+	require.NoError(t, service.Upsert(ctx, definition))
+	assert.Equal(t, "secret_check", store.definitions["pii"].Type)
+	assert.JSONEq(t, written, string(store.definitions["pii"].Config))
+
+	for _, defType := range []string{"Secret_Check", "plugin:secret_check", " secret_check "} {
+		definition := secretDefinition("raw", "typed-key")
+		definition.Type = defType
+		refs, err := service.storeDefinitionSecrets(ctx, &definition, nil)
+		require.NoError(t, err, defType)
+		assert.Equal(t, []string{"${vault:written/raw/config.api_key}"}, refs, defType)
+		assert.Equal(t, []string{"${vault:written/raw/config.api_key}"}, service.definitionSecretValues(definition), defType)
+	}
+
+	unknown := Definition{Name: "x", Type: "no_such_plugin", Config: json.RawMessage(`{"api_key":"typed-key"}`)}
+	_, err := service.storeDefinitionSecrets(ctx, &unknown, nil)
+	require.Error(t, err)
+	assert.True(t, IsValidationError(err))
+	assert.JSONEq(t, `{"api_key":"typed-key"}`, string(unknown.Config), "nothing is stored for an unknown type")
+}
+
 // Configuration seeding persists the definition as given: a secret reference
 // reaches the database unresolved, and only the built instance sees the value.
 func TestServiceSeedStoresReferencesNotValues(t *testing.T) {

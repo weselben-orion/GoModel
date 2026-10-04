@@ -59,13 +59,16 @@ func (s *Service) resolveDefinition(ctx context.Context, schema []pluginapi.Fiel
 // rejected, and if a write fails the references already created are
 // released, except those in keep, which a writer that reuses a reference may
 // have returned again.
+//
+// A type the catalog does not know is an error rather than a definition with
+// no secret fields, so a literal secret never bypasses the writer.
 func (s *Service) storeDefinitionSecrets(ctx context.Context, def *Definition, keep []string) ([]string, error) {
-	entry, ok := s.catalog.Lookup(def.Type)
+	schema, ok := s.configSchema(def.Type)
 	if !ok {
-		return nil, nil
+		return nil, newValidationError(`unknown guardrail type: "`+def.Type+`"`, nil)
 	}
 	var written []string
-	stored, err := plugins.MapSecrets(entry.Manifest.ConfigSchema, def.Config, func(key, value string) (string, error) {
+	stored, err := plugins.MapSecrets(schema, def.Config, func(key, value string) (string, error) {
 		reference, err := s.secrets.StoreSecret(ctx, config.SecretKey{Entity: DefinitionSecretEntity, ID: def.Name, Field: configSecretField(key)}, value, keep)
 		if err == nil && reference != value {
 			written = append(written, reference)
@@ -85,11 +88,22 @@ func (s *Service) storeDefinitionSecrets(ctx context.Context, def *Definition, k
 
 // definitionSecretValues lists the secret values of def's config.
 func (s *Service) definitionSecretValues(def Definition) []string {
-	entry, ok := s.catalog.Lookup(def.Type)
+	schema, ok := s.configSchema(def.Type)
 	if !ok {
 		return nil
 	}
-	return slices.Collect(maps.Values(plugins.SecretValues(entry.Manifest.ConfigSchema, def.Config)))
+	return slices.Collect(maps.Values(plugins.SecretValues(schema, def.Config)))
+}
+
+// configSchema returns the config schema of the plugin a definition type
+// names, normalizing the type the way a saved definition is ("plugin:"
+// prefix, case, aliases).
+func (s *Service) configSchema(defType string) ([]pluginapi.Field, bool) {
+	entry, ok := s.catalog.Lookup(normalizeDefinitionType(defType))
+	if !ok {
+		return nil, false
+	}
+	return entry.Manifest.ConfigSchema, true
 }
 
 // storedSecretValues lists the secret values of the cached definition name.
