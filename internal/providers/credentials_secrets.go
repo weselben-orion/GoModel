@@ -16,24 +16,25 @@ import (
 // "provider_credentials.openai.api_keys[0]" (ADR-0014 §4).
 const CredentialSecretEntity = "provider_credentials"
 
-// credentialSecretField is one field of a credential row that accepts a secret
-// reference: API keys, the service-account JSON forms, and the proxy URL.
-type credentialSecretField struct {
+// credentialReferenceField is one field of a credential row that accepts a
+// secret reference: API keys, the service-account JSON forms, and the proxy
+// URL.
+type credentialReferenceField struct {
 	name  string // within the entity: "api_keys[0]", "proxy_url"
 	value *string
 }
 
-// credentialSecretFields returns the secret fields of cred, pointing into it.
+// credentialReferenceFields returns the secret fields of cred, pointing into it.
 // The caller owns cred, APIKeys included.
-func credentialSecretFields(cred *ManagedProviderCredential) []credentialSecretField {
-	fields := make([]credentialSecretField, 0, len(cred.APIKeys)+3)
+func credentialReferenceFields(cred *ManagedProviderCredential) []credentialReferenceField {
+	fields := make([]credentialReferenceField, 0, len(cred.APIKeys)+3)
 	for i := range cred.APIKeys {
-		fields = append(fields, credentialSecretField{name: CredentialFieldAPIKeys + "[" + strconv.Itoa(i) + "]", value: &cred.APIKeys[i]})
+		fields = append(fields, credentialReferenceField{name: CredentialFieldAPIKeys + "[" + strconv.Itoa(i) + "]", value: &cred.APIKeys[i]})
 	}
 	return append(fields,
-		credentialSecretField{name: CredentialFieldServiceAccountJSON, value: &cred.ServiceAccountJSON},
-		credentialSecretField{name: CredentialFieldServiceAccountJSONBase64, value: &cred.ServiceAccountJSONBase64},
-		credentialSecretField{name: CredentialFieldProxyURL, value: &cred.ProxyURL},
+		credentialReferenceField{name: CredentialFieldServiceAccountJSON, value: &cred.ServiceAccountJSON},
+		credentialReferenceField{name: CredentialFieldServiceAccountJSONBase64, value: &cred.ServiceAccountJSONBase64},
+		credentialReferenceField{name: CredentialFieldProxyURL, value: &cred.ProxyURL},
 	)
 }
 
@@ -45,7 +46,7 @@ func credentialSecretValues(cred *ManagedProviderCredential) []string {
 	}
 	clone := cloneCredential(*cred)
 	var values []string
-	for _, field := range credentialSecretFields(&clone) {
+	for _, field := range credentialReferenceFields(&clone) {
 		if *field.value != "" {
 			values = append(values, *field.value)
 		}
@@ -69,7 +70,7 @@ func credentialSecretEntity(name string) string {
 func (s *CredentialsService) resolveCredential(ctx context.Context, cred ManagedProviderCredential) (ManagedProviderCredential, *config.ResolvedEntity, error) {
 	resolved := cloneCredential(cred)
 	entity := credentialSecretEntity(cred.Name)
-	fields := credentialSecretFields(&resolved)
+	fields := credentialReferenceFields(&resolved)
 	values := make(map[string]string, len(fields))
 	for _, field := range fields {
 		if *field.value != "" {
@@ -112,7 +113,7 @@ func credentialSecretError(entity string, err error) error {
 func (s *CredentialsService) storeCredentialSecrets(ctx context.Context, cred *ManagedProviderCredential, keep []string) ([]string, error) {
 	cred.APIKeys = slices.Clone(cred.APIKeys)
 	var written []string
-	for _, field := range credentialSecretFields(cred) {
+	for _, field := range credentialReferenceFields(cred) {
 		key := config.SecretKey{Entity: CredentialSecretEntity, ID: cred.Name, Field: field.name}
 		stored, err := s.secrets.StoreSecret(ctx, key, *field.value, keep)
 		if err != nil {
