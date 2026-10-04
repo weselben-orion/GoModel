@@ -113,6 +113,38 @@ func TestStoreSecretRejectsOwnedReferencesTheEntityDoesNotHold(t *testing.T) {
 	assert.Empty(t, writer.keys)
 }
 
+// An owned reference inside a longer value is checked, kept, and released
+// like one that is the whole value.
+func TestWriterReferencesInsideLongerValues(t *testing.T) {
+	writer := &fakeSecretWriter{}
+	secrets := NewSecrets()
+	secrets.SetWriter(writer)
+	key := SecretKey{Entity: "mcp_servers", ID: "docs", Field: "headers.Authorization"}
+
+	_, err := secrets.StoreSecret(t.Context(), key, "Bearer ${fake:a}", []string{"${fake:b}"})
+	require.ErrorIs(t, err, ErrSecretNotHeld)
+	_, err = secrets.StoreSecret(t.Context(), key, "${env:X}-${fake:a}", nil)
+	require.ErrorIs(t, err, ErrSecretNotHeld)
+
+	stored, err := secrets.StoreSecret(t.Context(), key, "Bearer ${fake:a}", []string{"${fake:a}"})
+	require.NoError(t, err, "the stored row holds it whole")
+	assert.Equal(t, "Bearer ${fake:a}", stored)
+	stored, err = secrets.StoreSecret(t.Context(), key, "${fake:a}", []string{"Bearer ${fake:a}"})
+	require.NoError(t, err, "the stored row holds it inside a longer value")
+	assert.Equal(t, "${fake:a}", stored)
+	stored, err = secrets.StoreSecret(t.Context(), key, "Bearer $${fake:a}", nil)
+	require.NoError(t, err, "an escaped placeholder is literal text, written like any literal")
+	assert.Equal(t, "${fake:mcp_servers/docs/headers.Authorization}", stored)
+	writer.keys = nil
+
+	require.NoError(t, secrets.ReleaseSecrets(t.Context(), []string{"${fake:a}"}, []string{"Bearer ${fake:a}"}))
+	assert.Empty(t, writer.deleted, "a reference still used inside a longer value is kept")
+
+	previous := []string{"Bearer ${fake:a}", "${env:X}:${fake:b}", "$${fake:c}"}
+	require.NoError(t, secrets.ReleaseSecrets(t.Context(), previous, []string{"${fake:b}"}))
+	assert.Equal(t, []string{"${fake:a}"}, writer.deleted)
+}
+
 func TestReleaseSecretsDeletesOwnedReplacedReferences(t *testing.T) {
 	writer := &fakeSecretWriter{}
 	secrets := NewSecrets()

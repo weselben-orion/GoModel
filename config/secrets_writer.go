@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 )
@@ -76,17 +77,20 @@ var ErrSecretNotHeld = errors.New("refers to a stored secret this entity no long
 // every value when no writer is registered.
 //
 // held lists the values of the entity as currently stored. A reference the
-// writer owns that held does not hold is rejected with a *SecretError
-// wrapping ErrSecretNotHeld, so a save never persists a reference whose
-// secret was released.
+// writer owns, alone or inside a longer value, that no value of held contains
+// is rejected with a *SecretError wrapping ErrSecretNotHeld, so a save never
+// persists a reference whose secret was released.
 func (s *Secrets) StoreSecret(ctx context.Context, key SecretKey, value string, held []string) (string, error) {
 	w := s.secretWriter()
 	if w == nil || value == "" {
 		return value, nil
 	}
-	if HasSecretReference(value) {
-		if w.OwnsReference(value) && !slices.Contains(held, value) {
-			return "", &SecretError{Field: key.Entity + "." + key.ID + "." + key.Field, Scheme: referenceScheme(value), Err: ErrSecretNotHeld}
+	if references := secretReferences(value); len(references) > 0 {
+		heldReferences := secretReferenceSet(held)
+		for _, reference := range references {
+			if _, ok := heldReferences[reference]; !ok && w.OwnsReference(reference) {
+				return "", &SecretError{Field: key.Entity + "." + key.ID + "." + key.Field, Scheme: referenceScheme(reference), Err: ErrSecretNotHeld}
+			}
 		}
 		return value, nil
 	}
@@ -102,32 +106,25 @@ func (s *Secrets) StoreSecret(ctx context.Context, key SecretKey, value string, 
 	return reference, nil
 }
 
-// ReleaseSecrets deletes, through the registered writer, every value of
-// previous that the writer owns and current no longer holds: the secrets of
-// a deleted entity, or of a field whose reference was replaced. Call it after
-// the change is committed. Every failure is returned, joined; none of them
-// undoes the change.
+// ReleaseSecrets deletes, through the registered writer, every reference in
+// the values of previous that the writer owns and no value of current still
+// contains: the secrets of a deleted entity, or of a field whose reference
+// was replaced. A reference counts wherever it appears in a value, alone or
+// inside longer text. Call it after the change is committed. Every failure is
+// returned, joined; none of them undoes the change.
 func (s *Secrets) ReleaseSecrets(ctx context.Context, previous, current []string) error {
 	w := s.secretWriter()
 	if w == nil {
 		return nil
 	}
-	keep := make(map[string]struct{}, len(current))
-	for _, value := range current {
-		keep[value] = struct{}{}
-	}
+	keep := secretReferenceSet(current)
 	var errs []error
-	released := make(map[string]struct{}, len(previous))
-	for _, value := range previous {
-		if _, kept := keep[value]; kept || !w.OwnsReference(value) {
+	for _, reference := range slices.Sorted(maps.Keys(secretReferenceSet(previous))) {
+		if _, kept := keep[reference]; kept || !w.OwnsReference(reference) {
 			continue
 		}
-		if _, done := released[value]; done {
-			continue
-		}
-		released[value] = struct{}{}
-		if err := w.DeleteSecret(ctx, value); err != nil {
-			errs = append(errs, fmt.Errorf("delete secret %s: %w", value, err))
+		if err := w.DeleteSecret(ctx, reference); err != nil {
+			errs = append(errs, fmt.Errorf("delete secret %s: %w", reference, err))
 		}
 	}
 	return errors.Join(errs...)
@@ -142,4 +139,39 @@ func referenceScheme(value string) string {
 	}
 	scheme, _, _ := parseSecretReference(strings.TrimSuffix(inner, "}"))
 	return scheme
+}
+
+// secretReferenceSet returns every secret reference the values contain.
+func secretReferenceSet(values []string) map[string]struct{} {
+	references := make(map[string]struct{})
+	for _, value := range values {
+		for _, reference := range secretReferences(value) {
+			references[reference] = struct{}{}
+		}
+	}
+	return references
+}
+
+// secretReferences returns each ${scheme:reference} in value, using the same
+// scan as Resolve: an escaped $${...} is not a reference.
+func secretReferences(value string) []string {
+	var references []string
+	for rest := value; ; {
+		i := strings.Index(rest, "${")
+		if i < 0 {
+			return references
+		}
+		if i > 0 && rest[i-1] == '$' {
+			rest = rest[i+2:]
+			continue
+		}
+		end := strings.IndexByte(rest[i:], '}')
+		if end < 0 {
+			return references
+		}
+		if _, _, ok := parseSecretReference(rest[i+2 : i+end]); ok {
+			references = append(references, rest[i:i+end+1])
+		}
+		rest = rest[i+end+1:]
+	}
 }
