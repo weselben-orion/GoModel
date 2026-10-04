@@ -202,6 +202,14 @@ Resolvers see field paths rooted at the entity: `provider_credentials.<name>.api
 `guardrails` so it cannot collide with the `guardrails` section of
 `config.yaml`.
 
+These paths are deliberately not the identifiers encryption at rest
+(section 6) binds ciphertexts to. Its additional authenticated data uses the
+normalized credential name (`normalizeCredentialName`) and the field
+`api_keys` for every key, so reordering a credential's keys never breaks
+decryption. Reference paths use the name as saved and index each key
+(`api_keys[<i>]`), so rotation reports the key that changed. Do not unify the
+two.
+
 `Secrets.ResolveEntity` resolves one entity's fields as a unit and records
 them for rotation (section 5) only once the entity is installed, replacing
 whatever that entity recorded before; `Secrets.ForgetEntity` drops the
