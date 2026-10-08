@@ -13,6 +13,7 @@
     providerBreakerState,
     providerBreakerStateLabel,
     providerBreakerStateClass,
+    providerBreakerResetPath,
     providerRecentTrafficSummary,
     providerHealthModels,
     providerHealthModelStats,
@@ -21,11 +22,65 @@
     providerRetrySummary,
     providerCircuitBreakerSummary,
   } from "./providersLogic.js";
+  import { confirmDialog } from "$lib/stores/confirm.svelte.js";
+  import { flash } from "$lib/stores/flash.svelte.js";
+  import { sendJSON } from "$lib/api/client.js";
+  import { providerStatusState } from "./overviewState.svelte.js";
   import * as m from "$lib/paraglide/messages.js";
 
   let { provider, expanded } = $props();
 
   const breakerClass = $derived(providerBreakerStateClass(provider));
+
+  // Force-reset action for the provider's circuit breaker: opens the shared
+  // confirmation dialog; confirming POSTs the reset and refetches the
+  // provider status so the breaker chip flips to Closed live.
+  let resetting = $state(false);
+
+  function requestBreakerReset() {
+    if (resetting || !provider?.name || !providerBreakerResetPath(provider.name)) {
+      return;
+    }
+    confirmDialog.open({
+      title: m.overview_breaker_reset_confirm_title(),
+      message: m.overview_breaker_reset_confirm_message({ provider: provider.name }),
+      confirmLabel: m.overview_breaker_reset(),
+      onConfirm: () => resetBreaker(),
+    });
+  }
+
+  async function resetBreaker() {
+    if (resetting) return;
+    resetting = true;
+    try {
+      const result = await sendJSON(
+        providerBreakerResetPath(provider.name),
+        "POST",
+        undefined,
+        { label: `breaker reset for ${provider.name}` },
+      );
+      if (result.stale) {
+        return;
+      }
+      if (!result.ok) {
+        // 401 stays silent (the global auth dialog owns it); other failures
+        // (e.g. 404 unknown provider) surface in the dialog, which stays
+        // open so the card is untouched.
+        if (result.status !== 401) {
+          confirmDialog.error = m.overview_breaker_reset_failed({ provider: provider.name });
+        }
+        return;
+      }
+      confirmDialog.close();
+      flash.success(m.overview_breaker_reset_done({ provider: provider.name }));
+      void providerStatusState.fetch();
+    } catch (e) {
+      console.error("Failed to reset circuit breaker:", e);
+      confirmDialog.error = m.overview_breaker_reset_failed({ provider: provider.name });
+    } finally {
+      resetting = false;
+    }
+  }
 
   // Config rows that are only rendered when the provider declares them.
   const optionalConfig = $derived(
@@ -65,10 +120,18 @@
         {#if providerBreakerState(provider)}
           <div class="provider-status-config-row">
             <span class="provider-status-config-label">{m.overview_breaker_state()}</span>
-            <span>
-              <span
-                class={["provider-status-health-state", breakerClass]}
-              >{providerBreakerStateLabel(provider)}</span>
+            <span class="provider-status-breaker-row">
+              <span>
+                <span
+                  class={["provider-status-health-state", breakerClass]}
+                >{providerBreakerStateLabel(provider)}</span>
+              </span>
+              <button
+                type="button"
+                class="btn btn-danger-outline provider-status-breaker-reset"
+                disabled={resetting}
+                onclick={requestBreakerReset}
+              >{m.overview_breaker_reset()}</button>
             </span>
           </div>
         {/if}
@@ -170,6 +233,19 @@
     font-size: 13px;
     color: var(--text);
     overflow-wrap: break-word;
+  }
+
+  /* Breaker State row: chip and the Force reset action share one line. */
+  .provider-status-breaker-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .provider-status-breaker-reset {
+    padding: 3px 10px;
+    font-size: 12px;
   }
 
   .provider-status-health {
