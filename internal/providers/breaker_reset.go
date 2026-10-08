@@ -20,10 +20,12 @@ var ErrProviderBreakerResetUnsupported = errors.New("provider has no llmclient c
 
 // BreakerResetter force-closes a named provider's circuit breaker(s).
 type BreakerResetter interface {
-	// ResetCircuitBreaker returns 1 when the provider instance was reset and
-	// 0 when it has no llmclient breaker at all. Disabled breakers are
-	// counted as reset (the call is a safe no-op for them).
-	ResetCircuitBreaker(providerName string) (reset int, err error)
+	// ResetCircuitBreaker resets every breaker the named provider owns.
+	// Disabled breakers are a successful no-op. It returns
+	// ErrProviderNotFound for an unknown name and
+	// ErrProviderBreakerResetUnsupported when the provider has no
+	// llmclient breaker at all.
+	ResetCircuitBreaker(providerName string) error
 }
 
 type registryBreakerResetter struct {
@@ -34,17 +36,16 @@ func NewBreakerResetter(registry *ModelRegistry) BreakerResetter {
 	return registryBreakerResetter{registry: registry}
 }
 
-func (r registryBreakerResetter) ResetCircuitBreaker(providerName string) (int, error) {
+func (r registryBreakerResetter) ResetCircuitBreaker(providerName string) error {
 	providerName = strings.TrimSpace(providerName)
 	provider := r.registry.ProviderByName(providerName)
 	if provider == nil {
-		return 0, fmt.Errorf("%w: %s", ErrProviderNotFound, providerName)
+		return fmt.Errorf("%w: %s", ErrProviderNotFound, providerName)
 	}
-	n := resetClientBreakers(provider)
-	if n == 0 {
-		return 0, fmt.Errorf("%w: %s", ErrProviderBreakerResetUnsupported, providerName)
+	if !resetClientBreakers(provider) {
+		return fmt.Errorf("%w: %s", ErrProviderBreakerResetUnsupported, providerName)
 	}
-	return n, nil
+	return nil
 }
 
 // resetClientBreakers walks the provider's breaker(s) and resets them. It
@@ -53,16 +54,14 @@ func (r registryBreakerResetter) ResetCircuitBreaker(providerName string) (int, 
 // state), then falls back to one reflect-driven field scan per type —
 // adding a new provider needs no new code here.
 //
-// The return value counts provider instances reset, not individual
-// breakers: an interface-path provider reports 1 even though its client
-// carries one provider-level breaker plus every model-scoped breaker, so
-// the reflect path reports 1 for the whole provider as well (the number of
-// llmclient.Client fields is a per-type implementation detail). Both paths
-// report 0 when nothing was reset.
-func resetClientBreakers(provider any) int {
+// The return value reports whether anything was reset, not how many
+// breakers: the number of llmclient.Client fields is a per-type
+// implementation detail, and an interface-path provider may carry one
+// provider-level breaker plus any number of model-scoped breakers.
+func resetClientBreakers(provider any) bool {
 	if r, ok := provider.(interface{ ResetBreaker() }); ok {
 		r.ResetBreaker()
-		return 1
+		return true
 	}
 
 	// Fall back to a single reflect pass: every llmclient-built provider
@@ -74,7 +73,7 @@ func resetClientBreakers(provider any) int {
 		v = v.Elem()
 	}
 	if v.Kind() != reflect.Struct {
-		return 0
+		return false
 	}
 	t := v.Type()
 	for i := 0; i < t.NumField(); i++ {
@@ -89,8 +88,5 @@ func resetClientBreakers(provider any) int {
 		client.ResetBreaker()
 		resetAny = true
 	}
-	if resetAny {
-		return 1
-	}
-	return 0
+	return resetAny
 }

@@ -51,9 +51,8 @@ func TestBreakerResetter_ResetsRegisteredProvider(t *testing.T) {
 	provider := &resetTrackingProvider{}
 	registry.RegisterProviderWithNameAndType(provider, "openai-main", "openai")
 
-	count, err := NewBreakerResetter(registry).ResetCircuitBreaker("openai-main")
+	err := NewBreakerResetter(registry).ResetCircuitBreaker("openai-main")
 	require.NoError(t, err)
-	assert.Equal(t, 1, count)
 	assert.Equal(t, 1, provider.resets)
 }
 
@@ -62,21 +61,20 @@ func TestBreakerResetter_TrimsProviderName(t *testing.T) {
 	provider := &resetTrackingProvider{}
 	registry.RegisterProviderWithNameAndType(provider, "openai-main", "openai")
 
-	count, err := NewBreakerResetter(registry).ResetCircuitBreaker("  openai-main  ")
+	err := NewBreakerResetter(registry).ResetCircuitBreaker("  openai-main  ")
 	require.NoError(t, err)
-	assert.Equal(t, 1, count)
+	assert.Equal(t, 1, provider.resets)
 }
 
 func TestBreakerResetter_UnknownProvider(t *testing.T) {
 	registry := NewModelRegistry()
-	_, err := NewBreakerResetter(registry).ResetCircuitBreaker("missing")
+	err := NewBreakerResetter(registry).ResetCircuitBreaker("missing")
 	require.ErrorIs(t, err, ErrProviderNotFound)
 }
 
 // TestBreakerResetter_WalksEveryClientField proves a provider with several
 // *llmclient.Client fields (gemini/azure-style) gets every one of its
-// breakers reset by a single call. The count reports provider instances
-// (1), not the number of client fields walked.
+// breakers reset by a single call.
 func TestBreakerResetter_WalksEveryClientField(t *testing.T) {
 	registry := NewModelRegistry()
 	provider := &multiClientProvider{
@@ -94,9 +92,8 @@ func TestBreakerResetter_WalksEveryClientField(t *testing.T) {
 		require.ErrorContains(t, err, "circuit breaker")
 	}
 
-	count, err := NewBreakerResetter(registry).ResetCircuitBreaker("multi")
+	err := NewBreakerResetter(registry).ResetCircuitBreaker("multi")
 	require.NoError(t, err)
-	assert.Equal(t, 1, count, "count is per provider instance, not per client field")
 
 	// Postcondition: every breaker is closed.
 	for _, c := range []*llmclient.Client{provider.A, provider.B, provider.C} {
@@ -110,7 +107,7 @@ func TestBreakerResetter_ProviderWithoutBreakerResetSupport(t *testing.T) {
 	registry := NewModelRegistry()
 	registry.RegisterProviderWithNameAndType(&noResetNoClientProvider{}, "legacy", "test")
 
-	_, err := NewBreakerResetter(registry).ResetCircuitBreaker("legacy")
+	err := NewBreakerResetter(registry).ResetCircuitBreaker("legacy")
 	require.ErrorIs(t, err, ErrProviderBreakerResetUnsupported)
 }
 
@@ -120,15 +117,15 @@ func TestBreakerResetter_ProviderWithoutBreakerResetSupport(t *testing.T) {
 // client fields are skipped by the same CanInterface guard the nil check
 // rides on.
 func TestResetClientBreakers_DefensiveShapes(t *testing.T) {
-	// Nil exported client field: seen, but skipped — reset count 0.
-	assert.Equal(t, 0, resetClientBreakers(&multiClientProvider{}))
+	// Nil exported client field: seen, but skipped — nothing reset.
+	assert.False(t, resetClientBreakers(&multiClientProvider{}))
 	// Value (non-pointer) provider: reflect dereference reaches the struct.
 	withClient := &multiClientProvider{A: newClientForTest(t, "x")}
-	assert.Equal(t, 1, resetClientBreakers(*withClient))
-	// Non-struct provider value: the reflect fallback bails out at 0.
-	assert.Equal(t, 0, resetClientBreakers(42))
+	assert.True(t, resetClientBreakers(*withClient))
+	// Non-struct provider value: the reflect fallback bails out.
+	assert.False(t, resetClientBreakers(42))
 	// Unexported client field: the CanInterface guard skips it.
-	assert.Equal(t, 0, resetClientBreakers(&unexportedClientProvider{
+	assert.False(t, resetClientBreakers(&unexportedClientProvider{
 		hidden: newClientForTest(t, "y"),
 	}))
 }

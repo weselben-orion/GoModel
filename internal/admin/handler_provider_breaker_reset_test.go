@@ -68,7 +68,7 @@ func TestBreakerResetEndpoint_ClosesOpenBreaker(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
 	assert.Equal(t, "flaky", body.Provider)
-	assert.GreaterOrEqual(t, body.BreakersReset, 1)
+	assert.Equal(t, 1, body.BreakersReset, "success means exactly one provider instance was reset")
 	parsed, err := time.Parse(time.RFC3339, body.ResetAt)
 	require.NoError(t, err)
 	assert.WithinDuration(t, time.Now(), parsed, 5*time.Second)
