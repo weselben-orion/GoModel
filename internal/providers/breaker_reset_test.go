@@ -75,7 +75,8 @@ func TestBreakerResetter_UnknownProvider(t *testing.T) {
 
 // TestBreakerResetter_WalksEveryClientField proves a provider with several
 // *llmclient.Client fields (gemini/azure-style) gets every one of its
-// breakers reset by a single call.
+// breakers reset by a single call. The count reports provider instances
+// (1), not the number of client fields walked.
 func TestBreakerResetter_WalksEveryClientField(t *testing.T) {
 	registry := NewModelRegistry()
 	provider := &multiClientProvider{
@@ -95,7 +96,7 @@ func TestBreakerResetter_WalksEveryClientField(t *testing.T) {
 
 	count, err := NewBreakerResetter(registry).ResetCircuitBreaker("multi")
 	require.NoError(t, err)
-	assert.Equal(t, 3, count)
+	assert.Equal(t, 1, count, "count is per provider instance, not per client field")
 
 	// Postcondition: every breaker is closed.
 	for _, c := range []*llmclient.Client{provider.A, provider.B, provider.C} {

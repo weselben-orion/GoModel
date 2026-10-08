@@ -16,6 +16,12 @@ func (cb *circuitBreaker) Reset() {
 // ResetBreaker force-closes the provider-level breaker and every model-scoped
 // breaker so traffic resumes immediately after a trip, without a restart.
 // Safe when the breaker is disabled.
+//
+// Lock order: modelBreakersMu → per-breaker mutex, always in that order.
+// Never call back into the modelBreakers map from breaker code. A model
+// breaker created concurrently with this reset is missed by the iteration —
+// that is fine: it can only exist because breakerForModel just handed it out
+// fresh (state closed), so it needs no reset.
 func (c *Client) ResetBreaker() {
 	if c.circuitBreaker != nil {
 		c.circuitBreaker.Reset()

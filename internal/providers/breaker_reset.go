@@ -20,9 +20,9 @@ var ErrProviderBreakerResetUnsupported = errors.New("provider has no llmclient c
 
 // BreakerResetter force-closes a named provider's circuit breaker(s).
 type BreakerResetter interface {
-	// Reset returns the number of llmclient clients whose breaker was reset.
-	// A disabled breaker counts as 0 — the provider is reset "successfully"
-	// even though no breaker flipped, which is what dashboards expect.
+	// ResetCircuitBreaker returns 1 when the provider instance was reset and
+	// 0 when it has no llmclient breaker at all. Disabled breakers are
+	// counted as reset (the call is a safe no-op for them).
 	ResetCircuitBreaker(providerName string) (reset int, err error)
 }
 
@@ -47,11 +47,18 @@ func (r registryBreakerResetter) ResetCircuitBreaker(providerName string) (int, 
 	return n, nil
 }
 
-// resetClientBreakers walks every reachable *llmclient.Client on the provider
-// value and resets its breaker. It first checks for any type that implements
-// a ResetBreaker method (so OpenAI-compatible adapters can opt into walking
-// their own multi-client state), then falls back to one reflect-driven field
-// scan per type — adding a new provider needs no new code here.
+// resetClientBreakers walks the provider's breaker(s) and resets them. It
+// first checks for any type that implements a ResetBreaker method (so
+// OpenAI-compatible adapters can opt into walking their own multi-client
+// state), then falls back to one reflect-driven field scan per type —
+// adding a new provider needs no new code here.
+//
+// The return value counts provider instances reset, not individual
+// breakers: an interface-path provider reports 1 even though its client
+// carries one provider-level breaker plus every model-scoped breaker, so
+// the reflect path reports 1 for the whole provider as well (the number of
+// llmclient.Client fields is a per-type implementation detail). Both paths
+// report 0 when nothing was reset.
 func resetClientBreakers(provider any) int {
 	if r, ok := provider.(interface{ ResetBreaker() }); ok {
 		r.ResetBreaker()
@@ -61,7 +68,7 @@ func resetClientBreakers(provider any) int {
 	// Fall back to a single reflect pass: every llmclient-built provider
 	// exposes its client(s) as exported *llmclient.Client fields (one for
 	// plain adapters, more for multi-client providers like gemini/azure).
-	var reset int
+	resetAny := false
 	v := reflect.ValueOf(provider)
 	for v.Kind() == reflect.Pointer {
 		v = v.Elem()
@@ -80,7 +87,10 @@ func resetClientBreakers(provider any) int {
 			continue
 		}
 		client.ResetBreaker()
-		reset++
+		resetAny = true
 	}
-	return reset
+	if resetAny {
+		return 1
+	}
+	return 0
 }

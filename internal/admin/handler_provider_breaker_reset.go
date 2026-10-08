@@ -12,9 +12,10 @@ import (
 	"github.com/enterpilot/gomodel/internal/providers"
 )
 
-// breakerResetResponse is the body of a successful force reset. BreakersReset
-// is 1 for the provider-level breaker plus every model-scoped breaker the
-// provider instance had live at reset time.
+// breakerResetResponse is the body of a successful force reset.
+// BreakersReset counts provider instances reset (0 or 1), not individual
+// breakers: one provider instance may carry a provider-level breaker plus
+// any number of model-scoped breakers, and all of them were reset.
 type breakerResetResponse struct {
 	Provider      string `json:"provider"`
 	BreakersReset int    `json:"breakers_reset"`

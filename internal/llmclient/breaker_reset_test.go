@@ -108,6 +108,46 @@ func TestResetBreaker_ModelScopeResetsProviderAndModelBreakers(t *testing.T) {
 	assert.False(t, probe)
 }
 
+// TestResetBreaker_LateProbeOutcomeAfterReset pins the semantics when a
+// half-open probe's outcome lands after a Reset: RecordSuccess on the
+// now-closed breaker takes the closed branch (failures zeroed — the counter
+// restarts from zero, no stale state resurrects) and RecordFailure on a
+// fresh closed breaker trips it again at the configured threshold, so a
+// still-failing provider re-opens instead of staying closed forever.
+func TestResetBreaker_LateProbeOutcomeAfterReset(t *testing.T) {
+	client := newResetTestClient("provider")
+	require.NotNil(t, client.circuitBreaker)
+	trip(client.circuitBreaker)
+	// Age past the open timeout so the next acquire transitions to half-open
+	// and consumes the single probe slot — the probe is now "in flight".
+	client.circuitBreaker.mu.Lock()
+	client.circuitBreaker.lastFailure = time.Now().Add(-2 * time.Hour)
+	client.circuitBreaker.mu.Unlock()
+	allowed, probe := client.circuitBreaker.acquire()
+	require.True(t, allowed)
+	require.True(t, probe)
+	require.Equal(t, "half-open", client.circuitBreaker.State())
+
+	// Reset wins the race: the breaker is closed while the probe is still
+	// in flight.
+	client.ResetBreaker()
+	require.Equal(t, "closed", client.circuitBreaker.State())
+
+	// The late success lands against the closed state: failures stay zeroed,
+	// the breaker stays closed, and traffic is admitted without a probe.
+	client.circuitBreaker.RecordSuccess()
+	assert.Equal(t, "closed", client.circuitBreaker.State())
+	allowed, probe = client.circuitBreaker.acquire()
+	assert.True(t, allowed, "closed breaker admits traffic with no probe")
+	assert.False(t, probe)
+
+	// A late failure starts counting from zero on the fresh closed breaker:
+	// with threshold 1 it re-opens immediately — a still-broken provider is
+	// not masked by the reset.
+	client.circuitBreaker.RecordFailure()
+	assert.Equal(t, "open", client.circuitBreaker.State())
+}
+
 func TestResetBreaker_DisabledBreakerIsSafeNoOp(t *testing.T) {
 	cfg := DefaultConfig("test", "")
 	cfg.CircuitBreaker.Enabled = false

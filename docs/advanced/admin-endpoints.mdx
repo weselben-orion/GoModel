@@ -473,6 +473,55 @@ available when budget management is enabled.
 | `POST`   | `/admin/budgets/reset-one`     | Reset one budget period              |
 | `POST`   | `/admin/budgets/reset`         | Reset all budget periods             |
 
+### Provider endpoints
+
+Provider instances are administered under `/admin/providers` and
+`/admin/provider-credentials`. These endpoints are gateway-wide and require
+the global admin scope.
+
+| Method | Path | Description |
+| ------ | ---- | ----------- |
+| `GET`    | `/admin/providers/status`                | Per-provider health snapshot (state, last error, breaker status) |
+| `POST`   | `/admin/providers/{name}/breaker/reset`  | Force-close the named provider's circuit breaker(s) so traffic resumes without a restart |
+| `POST`   | `/admin/runtime/refresh`                 | Reload provider and model configuration from disk without restarting the gateway |
+| `GET`    | `/admin/provider-credentials`            | List configured provider credentials (API keys, base URLs) |
+| `GET`    | `/admin/provider-credentials/types`      | List the provider credential types the build supports |
+| `PUT`    | `/admin/provider-credentials`            | Create or update a provider credential |
+| `DELETE` | `/admin/provider-credentials/{name}`     | Delete a provider credential |
+
+#### POST /admin/providers/{name}/breaker/reset
+
+Force-closes the named provider's circuit breaker(s) — the provider-level
+breaker plus every model-scoped breaker the provider instance had live at
+reset time — so traffic resumes immediately instead of waiting out the
+open-state timeout. A provider whose breaker is disabled is a successful
+no-op. The endpoint requires the global admin scope (`/team/...` scoped
+keys get `403 admin_scope_denied`).
+
+```bash
+curl -X POST http://localhost:8080/admin/providers/openai_main/breaker/reset \
+  -H "Authorization: Bearer $GOMOD..._KEY"
+```
+
+**Response:**
+
+```json
+{
+  "provider": "openai_main",
+  "breakers_reset": 1,
+  "reset_at": "2026-10-08T04:12:33Z"
+}
+```
+
+`breakers_reset` is `1` when the provider instance was reset (it always is
+when the call returns `200`) and `0` is not exposed. Each provider instance
+may carry one provider-level breaker plus any number of model-scoped
+breakers, and a single call resets them all; a provider that does not
+implement the llmclient breaker protocol — for example Bedrock, which drives
+the AWS SDK outside the llmclient engine — answers `409` with an
+`invalid_request` error body so the dashboard can tell "nothing to reset"
+apart from "provider missing" (which is `404`).
+
 `PUT`, `DELETE`, and `reset-one` identify one budget by the composite
 `(user_path, period)` key, or `(user_path, period_seconds)` for custom periods.
 These operations are not global per period. For the path-scoped `PUT` and
