@@ -35,18 +35,19 @@ func (h *Handler) ResetProviderBreaker(c *echo.Context) error {
 		return handleError(c, core.NewNotFoundError("provider name is required"))
 	}
 	resetter := providers.NewBreakerResetter(h.registry)
-	if err := resetter.ResetCircuitBreaker(name); err != nil {
+	count, err := resetter.ResetCircuitBreaker(name)
+	if err != nil {
 		if errors.Is(err, providers.ErrProviderNotFound) {
 			return handleError(c, core.NewNotFoundError("unknown provider: "+name))
 		}
+		// Every other error the registry-backed resetter returns today is the
+		// unsupported-provider sentinel; map it to 409 so the dashboard can
+		// tell "nothing to reset" apart from "provider missing".
 		return handleError(c, core.NewInvalidRequestErrorWithStatus(http.StatusConflict, err.Error(), err))
 	}
 	return c.JSON(http.StatusOK, breakerResetResponse{
-		Provider: name,
-		// The registry-backed resetter walks one provider instance; the count
-		// distinguishes only reset-attempted (1) today — per-client counts
-		// arrive with per-surface reporting if ever needed.
-		BreakersReset: 1,
+		Provider:      name,
+		BreakersReset: count,
 		ResetAt:       time.Now().UTC().Format(time.RFC3339),
 	})
 }

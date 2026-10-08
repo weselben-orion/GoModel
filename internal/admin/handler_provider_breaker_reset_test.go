@@ -106,7 +106,7 @@ func TestBreakerResetEndpoint_ProviderWithoutResetSupport(t *testing.T) {
 		echotest.WithPathValue("name", "legacy"), echotest.WithPath("/admin/providers/:name/breaker/reset"))
 	require.NoError(t, h.ResetProviderBreaker(c))
 	require.Equal(t, http.StatusConflict, rec.Code)
-	assert.Contains(t, rec.Body.String(), "does not support circuit breaker reset")
+	assert.Contains(t, rec.Body.String(), "has no llmclient circuit breaker to reset")
 }
 
 // TestBreakerResetEndpoint_NilRegistry asserts the handler reports the feature
