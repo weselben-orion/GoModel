@@ -60,6 +60,12 @@ func (c *ChatCompatible) SetBaseURL(url string) {
 	c.compatible.SetBaseURL(url)
 }
 
+// ResetBreaker force-closes the provider-level and model-scoped circuit
+// breakers so traffic resumes immediately after a trip, without a restart.
+func (c *ChatCompatible) ResetBreaker() {
+	c.compatible.ResetBreaker()
+}
+
 // GetBaseURL returns the provider's current base URL (reads live from the client,
 // so it reflects SetBaseURL overrides). Used to derive realtime websocket targets.
 func (c *ChatCompatible) GetBaseURL() string {

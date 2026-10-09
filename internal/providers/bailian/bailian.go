@@ -216,3 +216,9 @@ func adaptPassthroughBody(body io.ReadCloser) (io.ReadCloser, error) {
 	}
 	return io.NopCloser(bytes.NewReader(adapted)), nil
 }
+
+// ResetBreaker force-closes the provider-level and model-scoped circuit
+// breakers so traffic resumes immediately after a trip, without a restart.
+func (p *Provider) ResetBreaker() {
+	p.compatible.ResetBreaker()
+}

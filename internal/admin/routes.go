@@ -47,6 +47,7 @@ func (h *Handler) RegisterRoutes(g RouteRegistrar) {
 	g.GET("/media/:id", h.Media)
 
 	g.GET("/providers/status", h.ProviderStatus, global)
+	g.POST("/providers/:name/breaker/reset", h.ResetProviderBreaker, global)
 	g.POST("/runtime/refresh", h.RefreshRuntime, global)
 
 	g.GET("/provider-credentials", h.ListProviderCredentials, global)
