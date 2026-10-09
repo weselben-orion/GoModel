@@ -370,3 +370,15 @@ func nativeBaseURLFromOpenAICompatibleBaseURL(baseURL string) (string, bool) {
 	}
 	return nativeBaseURL, true
 }
+
+// ResetBreaker force-closes the provider-level and model-scoped circuit
+// breakers so traffic resumes immediately after a trip, without a restart.
+func (p *Provider) ResetBreaker() {
+	p.client.ResetBreaker()
+	if p.nativeClient != nil {
+		p.nativeClient.ResetBreaker()
+	}
+	if p.modelsClient != nil {
+		p.modelsClient.ResetBreaker()
+	}
+}

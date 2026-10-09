@@ -66,3 +66,9 @@ func (p *Provider) Embeddings(_ context.Context, _ *core.EmbeddingRequest) (*cor
 func setHeaders(req *http.Request, apiKey string) {
 	providers.SetAuthHeaders(req, apiKey, providers.AuthHeaderConfig{AuthScheme: "Bearer "})
 }
+
+// ResetBreaker force-closes the provider-level and model-scoped circuit
+// breakers so traffic resumes immediately after a trip, without a restart.
+func (p *Provider) ResetBreaker() {
+	p.compat.ResetBreaker()
+}

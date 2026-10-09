@@ -363,3 +363,9 @@ var (
 	_ core.ImageProvider     = (*Provider)(nil)
 	_ core.ImageEditProvider = (*Provider)(nil)
 )
+
+// ResetBreaker force-closes the provider-level and model-scoped circuit
+// breakers so traffic resumes immediately after a trip, without a restart.
+func (p *Provider) ResetBreaker() {
+	p.nativeClient.ResetBreaker()
+}
