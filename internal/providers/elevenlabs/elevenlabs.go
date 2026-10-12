@@ -210,3 +210,9 @@ func multilingualCapability(model modelInfo) map[string]bool {
 	}
 	return map[string]bool{"multilingual": true}
 }
+
+// ResetBreaker force-closes the provider-level and model-scoped circuit
+// breakers so traffic resumes immediately after a trip, without a restart.
+func (p *Provider) ResetBreaker() {
+	p.client.ResetBreaker()
+}

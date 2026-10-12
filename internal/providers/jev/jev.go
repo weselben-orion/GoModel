@@ -156,3 +156,9 @@ func passthroughPath(endpoint string) string {
 	}
 	return "/v1" + path
 }
+
+// ResetBreaker force-closes the provider-level and model-scoped circuit
+// breakers so traffic resumes immediately after a trip, without a restart.
+func (p *Provider) ResetBreaker() {
+	p.client.ResetBreaker()
+}

@@ -361,3 +361,10 @@ func (p *Provider) CancelBatch(_ context.Context, _ string) (*core.BatchResponse
 func (p *Provider) GetBatchResults(_ context.Context, _ string) (*core.BatchResultsResponse, error) {
 	return nil, errBatchUnsupported()
 }
+
+// ResetBreaker force-closes the provider-level and model-scoped circuit
+// breakers so traffic resumes immediately after a trip, without a restart.
+func (p *Provider) ResetBreaker() {
+	p.compat.ResetBreaker()
+	p.nativeClient.ResetBreaker()
+}

@@ -157,3 +157,9 @@ var (
 	_ core.Provider            = (*Provider)(nil)
 	_ core.AvailabilityChecker = (*Provider)(nil)
 )
+
+// ResetBreaker force-closes the provider-level and model-scoped circuit
+// breakers so traffic resumes immediately after a trip, without a restart.
+func (p *Provider) ResetBreaker() {
+	p.compatible.ResetBreaker()
+}

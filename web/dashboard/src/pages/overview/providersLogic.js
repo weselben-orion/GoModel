@@ -272,6 +272,12 @@ export function providerBreakerState(provider) {
   return requestHealth ? String(requestHealth.circuit_state || "").trim() : "";
 }
 
+export function providerBreakerResetPath(name) {
+  const provider = String(name || "").trim();
+  if (!provider) return "";
+  return `/admin/providers/${encodeURIComponent(provider)}/breaker/reset`;
+}
+
 export function providerBreakerStateLabel(provider) {
   const state = providerBreakerState(provider);
   if (!state) return "";

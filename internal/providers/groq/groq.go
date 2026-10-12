@@ -114,3 +114,9 @@ func (p *Provider) Embeddings(ctx context.Context, req *core.EmbeddingRequest) (
 func (p *Provider) CreateSpeech(ctx context.Context, req *core.AudioSpeechRequest) (*core.AudioResponse, error) {
 	return p.compat.CreateSpeech(ctx, req)
 }
+
+// ResetBreaker force-closes the provider-level and model-scoped circuit
+// breakers so traffic resumes immediately after a trip, without a restart.
+func (p *Provider) ResetBreaker() {
+	p.compat.ResetBreaker()
+}

@@ -2617,6 +2617,89 @@
         }
       }
     },
+    "/admin/providers/{name}/breaker/reset": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Force-close a provider's circuit breaker(s) so traffic resumes without a restart",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Provider instance name"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/admin.breakerResetResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/core.GatewayError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/core.GatewayError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/core.GatewayError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/core.GatewayError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "x-mint": {
+          "metadata": {
+            "sidebarTitle": "/admin/providers/{name}/breaker/reset",
+            "title": "Force-close a provider's circuit breaker(s) so traffic resumes without a restart",
+            "description": "GoModel API reference for POST /admin/providers/{name}/breaker/reset."
+          }
+        }
+      }
+    },
     "/admin/rate-limits": {
       "get": {
         "tags": [
@@ -17184,6 +17267,29 @@
             "format": "date-time"
           }
         }
+      },
+      "admin.breakerResetResponse": {
+        "type": "object",
+        "properties": {
+          "provider": {
+            "type": "string",
+            "description": "Provider instance name whose circuit breaker(s) were reset."
+          },
+          "breakers_reset": {
+            "type": "integer",
+            "description": "Provider instances reset (always 1 on a 200). One instance may carry a provider-level breaker plus model-scoped breakers; a single call resets them all."
+          },
+          "reset_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "UTC timestamp of the reset."
+          }
+        },
+        "required": [
+          "provider",
+          "breakers_reset",
+          "reset_at"
+        ]
       }
     }
   }

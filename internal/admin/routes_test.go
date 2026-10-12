@@ -55,6 +55,7 @@ func TestRegisterRoutes_RegistersExpectedPaths(t *testing.T) {
 		"GET /admin/media/:id",
 
 		"GET /admin/providers/status",
+		"POST /admin/providers/:name/breaker/reset",
 		"POST /admin/runtime/refresh",
 
 		"GET /admin/provider-credentials",
