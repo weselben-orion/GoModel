@@ -245,9 +245,18 @@ jobs:
           release_json="$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json tagName,name,body,url)"
           release_url="$(jq -r '.url' <<< "$release_json")"
 
+          # GoReleaser changelog lines look like:
+          #   * 1e4ecfb8f194af0e843f64d7dc694e3a01bef1dc feat(scope): msg (#1191)
+          # In the embed the verbatim SHA is noise and bare (#NNNN) is not
+          # clickable. Strip the leading commit SHA entirely and link #NNNN
+          # references to the official repository.
+          body="$(jq -r '.body // ""' <<< "$release_json" \
+            | sed -E -e 's/^(\s*[*-]\s+)[0-9a-f]{7,40}\s+/\1/' \
+                     -e 's/\(#([0-9]+)\)/([#\1](https:\/\/github.com\/ENTERPILOT\/GoModel\/pull\/\1))/g')"
+
           # Discord embed descriptions cap at 4096 characters — jq counts
-          # characters, not bytes, so multibyte notes stay within the limit.
-          body="$(jq -r '(.body // "") | if length > 4000 then .[0:3997] + "..." else . end' <<< "$release_json")"
+          # characters, not bytes, so multibyte release notes stay within the limit.
+          body="$(jq -R -r 'if length > 4000 then .[0:3997] + "..." else . end' <<< "$body")"
 
           # Discord embed titles cap at 256 characters — a release with a
           # long name must not lose the whole announce to an HTTP 400.
